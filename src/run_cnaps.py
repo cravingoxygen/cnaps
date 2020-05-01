@@ -54,8 +54,10 @@ from meta_dataset_reader import MetaDatasetReader, SingleDatasetReader
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Quiet TensorFlow warnings
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # Quiet TensorFlow warnings
+import cleverhans
 from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
 from cleverhans.attacks import ProjectedGradientDescent
+
 
 NUM_VALIDATION_TASKS = 200
 NUM_TEST_TASKS = 600
@@ -322,7 +324,8 @@ class Learner:
                 target_logits = tf_model(full_context_set, context_labels_ph, target_images_ph)
                 return target_logits
 
-            pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
+            wrapped_model = cleverhans.model.CallableModelWrapper(predict_callable, 'logits')
+            pgd = ProjectedGradientDescent(wrapped_model, sess=session, dtypestr='float32')
             x = tf.placeholder(tf.float32, shape=context_x.shape)
 
             adv_x_op = pgd.generate(x, **pgd_parameters)
