@@ -307,7 +307,7 @@ class Learner:
             #Context set size = num classes * num shots * (channels * width * height)
             context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict)
             constant_context_images = context_images[1:]
-            constant_context_images = context_labels[1:]
+            constant_context_labels = context_labels[1:]
 
             #Context images not perturbing
             context_images_ph = tf.placeholder(tf.float32, constant_context_images.shape, 'context_images')
