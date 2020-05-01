@@ -296,7 +296,6 @@ class Learner:
         print_and_log(self.logfile, 'Attacking model {0:}: '.format(path))
         self.model = self.init_model()
         self.model.load_state_dict(torch.load(path))
-        tf_model = convert_pytorch_model_to_tf(self.model, out_dims=self.args.way)
         pgd_parameters = self.pgd_params()
 
         for item in self.test_set:
@@ -304,36 +303,40 @@ class Learner:
             task_dict = self.dataset.get_test_task(item, session)
 
             #Context set size = num classes * num shots * (channels * width * height)
-            context_images, context_labels = task_dict['context_images'], task_dict['context_labels']
-            target_images, target_labels = task_dict['target_images'], task_dict['target_labels']
+            context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict, shuffle=False)
+            #context_images, context_labels = task_dict['context_images'], task_dict['context_labels']
+            #target_images, target_labels = task_dict['target_images'], task_dict['target_labels']
 
-            context_images = context_images.transpose([0, 3, 1, 2])
-            target_images = target_images.transpose([0, 3, 1, 2])
+            #context_images = context_images.transpose([0, 3, 1, 2])
+            #target_images = target_images.transpose([0, 3, 1, 2])
             constant_context_images = context_images[1:]
             constant_context_labels = context_labels[1:]
 
             #Context images not perturbing
-            context_images_ph = tf.placeholder(tf.float32, constant_context_images.shape, 'context_images')
-            context_labels_ph = tf.placeholder(tf.int32, constant_context_labels.shape, 'context_labels')
-            target_images_ph = tf.placeholder(tf.float32, target_images.shape, 'target_images')
-            target_labels_ph = tf.placeholder(tf.int64, target_labels.shape, 'target_labels')
+            #context_images_ph = tf.placeholder(tf.float32, constant_context_images.shape, 'context_images')
+            #context_labels_ph = tf.placeholder(tf.int32, constant_context_labels.shape, 'context_labels')
+            #target_images_ph = tf.placeholder(tf.float32, target_images.shape, 'target_images')
+            #target_labels_ph = tf.placeholder(tf.int64, target_labels.shape, 'target_labels')
 
             #Adversarial input context image
-            context_x = context_images[0]
+            context_x = tf.expand_dims(context_images[0], 0)
+            import pdb; pdb.set_trace()
 
-            def predict_callable(context_point_x):
-                full_context_set = tf.concat([tf.expand_dims(context_point_x, 0), context_images_ph], axis=0)
+            def model_wrapper(context_point_x):
+                full_context_set = torch.cat([context_point_x, context_images_ph], axis=0)
                 #What exactly does this return?
-                target_logits = tf_model(full_context_set, context_labels_ph, target_images_ph)
-                return target_logits
+                target_logits = self.model(full_context_set, context_labels, target_images)
+                return target_logits[0]
 
-            wrapped_model = cleverhans.model.CallableModelWrapper(predict_callable, 'logits')
-            pgd = ProjectedGradientDescent(wrapped_model, sess=session, dtypestr='float32')
+#            wrapped_model = cleverhans.model.CallableModelWrapper(model_wrapper, 'logits')
+            tf_model = convert_pytorch_model_to_tf(model_wrapper, out_dims=self.args.way)
+ 
+            pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
             x = tf.placeholder(tf.float32, shape=context_x.shape)
             import pdb; pdb.set_trace()
 
             adv_x_op = pgd.generate(x, **pgd_parameters)
-            preds_adv_op = tf_model.get_logits(adv_x_op)
+            preds_adv_op = wrapped_model.get_logits(adv_x_op)
 
             feed_dict = {context_images_ph: constant_context_images,  context_labels_ph: constant_context_images,
                          target_images_ph: target_images, x: context_x}
@@ -363,17 +366,19 @@ class Learner:
         )
 
 
-    def prepare_task(self, task_dict):
+    def prepare_task(self, task_dict, shuffle=True):
         context_images_np, context_labels_np = task_dict['context_images'], task_dict['context_labels']
         target_images_np, target_labels_np = task_dict['target_images'], task_dict['target_labels']
 
         context_images_np = context_images_np.transpose([0, 3, 1, 2])
-        context_images_np, context_labels_np = self.shuffle(context_images_np, context_labels_np)
+        if shuffle:
+            context_images_np, context_labels_np = self.shuffle(context_images_np, context_labels_np)
         context_images = torch.from_numpy(context_images_np)
         context_labels = torch.from_numpy(context_labels_np)
 
         target_images_np = target_images_np.transpose([0, 3, 1, 2])
-        target_images_np, target_labels_np = self.shuffle(target_images_np, target_labels_np)
+        if shuffle:
+            target_images_np, target_labels_np = self.shuffle(target_images_np, target_labels_np)
         target_images = torch.from_numpy(target_images_np)
         target_labels = torch.from_numpy(target_labels_np)
 
