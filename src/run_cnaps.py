@@ -55,7 +55,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Quiet TensorFlow warnings
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # Quiet TensorFlow warnings
 from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
-
+from cleverhans.attacks import ProjectedGradientDescent
 
 NUM_VALIDATION_TASKS = 200
 NUM_TEST_TASKS = 600
@@ -294,17 +294,18 @@ class Learner:
         print_and_log(self.logfile, 'Attacking model {0:}: '.format(path))
         self.model = self.init_model()
         self.model.load_state_dict(torch.load(path))
+        tf_model = convert_pytorch_model_to_tf(self.model, out_dims=self.args.way)
+        pgd_parameters = self.pgd_params()
 
         for item in self.test_set:
             accuracies = []
             task_dict = self.dataset.get_test_task(item, session)
-            tf_model = convert_pytorch_model_to_tf(self.model, out_dims=self.args.way)
 
             import pdb; pdb.set_trace()
             #Context set size = num classes * num shots * (channels * width * height)
             context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict)
             constant_context_images = context_images[1:]
-            constant_context_labels = context_labels[1:]
+            constant_context_images = context_labels[1:]
 
             #Context images not perturbing
             context_images_ph = tf.placeholder(tf.float32, constant_context_images.shape, 'context_images')
@@ -315,19 +316,44 @@ class Learner:
             #Adversarial input context image
             context_x = context_images[0]
 
-            def predict_target_callable(context_point_x):
+            def predict_callable(context_point_x):
+                full_context_set = tf.concat([context_x.unsqueeze(0), context_images_ph], axis=0)
+                #What exactly does this return?
+                target_logits = tf_model(full_context_set, context_labels_ph, target_images_ph)
+                return target_logits
 
-                target_logits = tf_model(context_images, context_labels, target_images)
+            pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
+            x = tf.placeholder(tf.float32, shape=context_x.shape)
 
+            adv_x_op = pgd.generate(x, **pgd_parameters)
+            preds_adv_op = tf_model.get_logits(adv_x_op)
 
-            accuracy = self.accuracy_fn(target_logits, target_labels)
-            accuracies.append(accuracy.item())
-            del target_logits
+            feed_dict = {context_images_ph: constant_context_images,  context_labels_ph: constant_context_images,
+                         target_images_ph: target_images, x: context_x}
+            adv_x, preds_adv = session.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
 
-            accuracy = np.array(accuracies).mean() * 100.0
-            accuracy_confidence = (196.0 * np.array(accuracies).std()) / np.sqrt(len(accuracies))
+            import pdb; pdb.set_trace()
 
-            print_and_log(self.logfile, '{0:}: {1:3.1f}+/-{2:2.1f}'.format(item, accuracy, accuracy_confidence))
+            # accuracy = self.accuracy_fn(target_logits, target_labels)
+            # accuracies.append(accuracy.item())
+            # del target_logits
+            #
+            # accuracy = np.array(accuracies).mean() * 100.0
+            # accuracy_confidence = (196.0 * np.array(accuracies).std()) / np.sqrt(len(accuracies))
+            #
+            # print_and_log(self.logfile, '{0:}: {1:3.1f}+/-{2:2.1f}'.format(item, accuracy, accuracy_confidence))
+
+    def pgd_params(self, eps=0.3, eps_iter=0.01, ord=np.Inf, nb_iter=10, rand_init=True, clip_grad=True):
+        return dict(
+            eps=eps,
+            eps_iter=eps_iter,
+            ord=ord,
+            nb_iter=nb_iter,
+            rand_init=rand_init,
+            clip_grad=clip_grad,
+            clip_min=-1.0,
+            clip_max=1.0,
+        )
 
     def prepare_task(self, task_dict):
         context_images_np, context_labels_np = task_dict['context_images'], task_dict['context_labels']
