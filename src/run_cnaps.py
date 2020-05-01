@@ -297,12 +297,13 @@ class Learner:
 
         for item in self.test_set:
             accuracies = []
-            task_dict = self.dataset.get_test_task(item, session)
-            context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict)
-            target_logits = self.model(context_images, context_labels, target_images)
-            accuracy = self.accuracy_fn(target_logits, target_labels)
-            accuracies.append(accuracy.item())
-            del target_logits
+            for _ in range(NUM_TEST_TASKS):
+                task_dict = self.dataset.get_test_task(item, session)
+                context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict)
+                target_logits = self.model(context_images, context_labels, target_images)
+                accuracy = self.accuracy_fn(target_logits, target_labels)
+                accuracies.append(accuracy.item())
+                del target_logits
 
             accuracy = np.array(accuracies).mean() * 100.0
             accuracy_confidence = (196.0 * np.array(accuracies).std()) / np.sqrt(len(accuracies))
