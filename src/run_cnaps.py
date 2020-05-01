@@ -51,6 +51,8 @@ from meta_dataset_reader import MetaDatasetReader, SingleDatasetReader
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Quiet TensorFlow warnings
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # Quiet TensorFlow warnings
+from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
+
 
 NUM_VALIDATION_TASKS = 200
 NUM_TEST_TASKS = 600
@@ -134,7 +136,7 @@ class Learner:
         parser.add_argument("--data_path", default="../datasets", help="Path to dataset records.")
         parser.add_argument("--pretrained_resnet_path", default="../models/pretrained_resnet.pt.tar",
                             help="Path to pretrained feature extractor model.")
-        parser.add_argument("--mode", choices=["train", "test", "train_test"], default="train_test",
+        parser.add_argument("--mode", choices=["train", "test", "train_test", "attack"], default="train_test",
                             help="Whether to run training only, testing only, or both training and testing.")
         parser.add_argument("--learning_rate", "-lr", type=float, default=5e-4, help="Learning rate.")
         parser.add_argument("--tasks_per_batch", type=int, default=16,
@@ -218,6 +220,9 @@ class Learner:
             if self.args.mode == 'test':
                 self.test(self.args.test_model_path, session)
 
+            if self.args.mode == 'attack':
+                self.attack(self.args.test_model_path, session)
+
             self.logfile.close()
 
     def train_task(self, task_dict):
@@ -279,6 +284,46 @@ class Learner:
                 accuracy_confidence = (196.0 * np.array(accuracies).std()) / np.sqrt(len(accuracies))
 
                 print_and_log(self.logfile, '{0:}: {1:3.1f}+/-{2:2.1f}'.format(item, accuracy, accuracy_confidence))
+
+    def attack(self, path, session):
+        print_and_log(self.logfile, "")  # add a blank line
+        print_and_log(self.logfile, 'Attacking model {0:}: '.format(path))
+        self.model = self.init_model()
+        self.model.load_state_dict(torch.load(path))
+        tf_model = convert_pytorch_model_to_tf(self.model)
+
+        for item in self.test_set:
+            accuracies = []
+            task_dict = self.dataset.get_test_task(item, session)
+
+            import pdb; pdb.set_trace()
+            #Context set size = num classes * num shots * (channels * width * height)
+            context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict)
+            constant_context_images = context_images[1:]
+            constant_context_labels = context_labels[1:]
+
+            #Context images not perturbing
+            context_images_ph = tf.placeholder(tf.float32, constant_context_images.shape, 'context_images')
+            context_labels_ph = tf.placeholder(tf.int32, constant_context_labels.shape, 'context_labels')
+            target_images_ph = tf.placeholder(tf.float32, target_images.shape, 'target_images')
+            target_labels_ph = tf.placeholder(tf.int64, target_labels.shape, 'target_labels')
+
+            #Adversarial input context image
+            context_x = context_images[0]
+
+            def predict_target_callable(context_point_x):
+
+                target_logits = tf_model(context_images, context_labels, target_images)
+
+
+            accuracy = self.accuracy_fn(target_logits, target_labels)
+            accuracies.append(accuracy.item())
+            del target_logits
+
+            accuracy = np.array(accuracies).mean() * 100.0
+            accuracy_confidence = (196.0 * np.array(accuracies).std()) / np.sqrt(len(accuracies))
+
+            print_and_log(self.logfile, '{0:}: {1:3.1f}+/-{2:2.1f}'.format(item, accuracy, accuracy_confidence))
 
     def prepare_task(self, task_dict):
         context_images_np, context_labels_np = task_dict['context_images'], task_dict['context_labels']
