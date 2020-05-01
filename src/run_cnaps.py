@@ -297,6 +297,7 @@ class Learner:
         self.model = self.init_model()
         self.model.load_state_dict(torch.load(path))
         pgd_parameters = self.pgd_params()
+        import pdb; pdb.set_trace()
 
         for item in self.test_set:
             accuracies = []
@@ -366,7 +367,7 @@ class Learner:
     def prepare_task(self, task_dict, shuffle=True):
         context_images_np, context_labels_np = task_dict['context_images'], task_dict['context_labels']
         target_images_np, target_labels_np = task_dict['target_images'], task_dict['target_labels']
-        
+
         context_images_np = context_images_np.transpose([0, 3, 1, 2])
         #TODO:
         context_x = context_images_np[0]
