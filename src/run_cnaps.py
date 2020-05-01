@@ -298,7 +298,7 @@ class Learner:
         for item in self.test_set:
             accuracies = []
             task_dict = self.dataset.get_test_task(item, session)
-            tf_model = convert_pytorch_model_to_tf(self.model)
+            tf_model = convert_pytorch_model_to_tf(self.model, out_dims=self.args.way)
 
             import pdb; pdb.set_trace()
             #Context set size = num classes * num shots * (channels * width * height)
