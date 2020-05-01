@@ -34,7 +34,7 @@ class MetaDatasetReader:
                                                                                        test_episode_description)
                 self.validation_set_dict[item] = next_task
 
-        if mode == 'test' or mode == 'train_test':
+        if mode == 'test' or mode == 'train_test' or mode == 'attack':
             test_episode_description = self._get_test_episode_description(max_way_test, max_support_test)
             for item in test_set:
                 next_task = self._init_single_source_dataset(item, learning_spec.Split.TEST, test_episode_description)
@@ -161,7 +161,7 @@ class SingleDatasetReader:
             self.train_next_task = self._init_dataset(dataset, learning_spec.Split.TRAIN, fixed_way_shot_train)
             self.validation_next_task = self._init_dataset(dataset, learning_spec.Split.VALID, fixed_way_shot_test)
 
-        if mode == 'test' or mode == 'train_test':
+        if mode == 'test' or mode == 'train_test' or mode == 'attack':
             self.test_next_task = self._init_dataset(dataset, learning_spec.Split.TEST, fixed_way_shot_test)
 
     def _init_dataset(self, dataset, split, episode_description):
