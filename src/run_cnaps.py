@@ -321,8 +321,6 @@ class Learner:
             #Adversarial input context image
             context_x = np.expand_dims(context_x, 0)
 
-            import pdb; pdb.set_trace()
-
             def model_wrapper(context_point_x):
                 full_context_set = torch.cat([context_point_x, context_images], dim=0)
                 #What exactly does this return?
