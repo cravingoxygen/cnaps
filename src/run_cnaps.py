@@ -295,22 +295,20 @@ class Learner:
         self.model = self.init_model()
         self.model.load_state_dict(torch.load(path))
 
-        with torch.no_grad():
-            for item in self.test_set:
-                accuracies = []
-                for _ in range(NUM_TEST_TASKS):
-                    task_dict = self.dataset.get_test_task(item, session)
-                    context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict)
-                    target_logits = self.model(context_images, context_labels, target_images)
-                    accuracy = self.accuracy_fn(target_logits, target_labels)
-                    accuracies.append(accuracy.item())
-                    del target_logits
+        for item in self.test_set:
+            accuracies = []
+            task_dict = self.dataset.get_test_task(item, session)
+            context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict)
+            target_logits = self.model(context_images, context_labels, target_images)
+            accuracy = self.accuracy_fn(target_logits, target_labels)
+            accuracies.append(accuracy.item())
+            del target_logits
 
-                accuracy = np.array(accuracies).mean() * 100.0
-                accuracy_confidence = (196.0 * np.array(accuracies).std()) / np.sqrt(len(accuracies))
+            accuracy = np.array(accuracies).mean() * 100.0
+            accuracy_confidence = (196.0 * np.array(accuracies).std()) / np.sqrt(len(accuracies))
 
-                print_and_log(self.logfile, '{0:}: {1:3.1f}+/-{2:2.1f}'.format(item, accuracy, accuracy_confidence))
-                
+            print_and_log(self.logfile, '{0:}: {1:3.1f}+/-{2:2.1f}'.format(item, accuracy, accuracy_confidence))
+
         # print_and_log(self.logfile, "")  # add a blank line
         # print_and_log(self.logfile, 'Attacking model {0:}: '.format(path))
         # self.model = self.init_model()
