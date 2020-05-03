@@ -41,7 +41,6 @@ import os
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="1"  # specify which GPU(s) to be used
 
-
 import torch
 import numpy as np
 import argparse
@@ -57,11 +56,18 @@ tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # Quiet TensorFl
 import cleverhans
 from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
 from cleverhans.attacks import ProjectedGradientDescent
-
+from PIL import Image
 
 NUM_VALIDATION_TASKS = 200
 NUM_TEST_TASKS = 600
 PRINT_FREQUENCY = 1000
+
+
+def save_image(image_array, save_path):
+    image_array = image_array.squeeze()
+    image_array = image_array.transpose([1, 2, 0])
+    im = Image.fromarray(np.clip((image_array + 1.0) * 127.5 + 0.5, 0, 255).astype(np.uint8), mode='RGB')
+    im.save(save_path)
 
 
 def main():
@@ -297,38 +303,19 @@ class Learner:
         self.model = self.init_model()
         self.model.load_state_dict(torch.load(path))
         pgd_parameters = self.pgd_params()
-        import pdb; pdb.set_trace()
 
         for item in self.test_set:
-            accuracies = []
             task_dict = self.dataset.get_test_task(item, session)
-
-            #Context set size = num classes * num shots * (channels * width * height)
             context_images, target_images, context_labels, target_labels, context_x = self.prepare_task(task_dict, shuffle=False)
-            #context_images, context_labels = task_dict['context_images'], task_dict['context_labels']
-            #target_images, target_labels = task_dict['target_images'], task_dict['target_labels']
-
-            #context_images = context_images.transpose([0, 3, 1, 2])
-            #target_images = target_images.transpose([0, 3, 1, 2])
-            constant_context_images = context_images[1:]
-            constant_context_labels = context_labels[1:]
-
-            #Context images not perturbing
-            #context_images_ph = tf.placeholder(tf.float32, constant_context_images.shape, 'context_images')
-            #context_labels_ph = tf.placeholder(tf.int32, constant_context_labels.shape, 'context_labels')
-            #target_images_ph = tf.placeholder(tf.float32, target_images.shape, 'target_images')
-            #target_labels_ph = tf.placeholder(tf.int64, target_labels.shape, 'target_labels')
 
             #Adversarial input context image
             context_x = np.expand_dims(context_x, 0)
 
             def model_wrapper(context_point_x):
-                full_context_set = torch.cat([context_point_x, context_images], dim=0)
-                #What exactly does this return?
+                full_context_set = torch.cat([context_point_x, context_images[1:]], dim=0)
                 target_logits = self.model(full_context_set, context_labels, target_images)
                 return target_logits[0]
 
-#            wrapped_model = cleverhans.model.CallableModelWrapper(model_wrapper, 'logits')
             tf_model_conv = convert_pytorch_model_to_tf(model_wrapper, out_dims=self.args.way)
             tf_model = cleverhans.model.CallableModelWrapper(tf_model_conv, 'logits')
             pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
@@ -340,16 +327,16 @@ class Learner:
             feed_dict = {x: context_x}
             adv_x, preds_adv = session.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
 
-            import pdb; pdb.set_trace()
+            save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
+            save_image(context_x, os.path.join(self.checkpoint_dir, 'in.png'))
 
-            # accuracy = self.accuracy_fn(target_logits, target_labels)
-            # accuracies.append(accuracy.item())
-            # del target_logits
-            #
-            # accuracy = np.array(accuracies).mean() * 100.0
-            # accuracy_confidence = (196.0 * np.array(accuracies).std()) / np.sqrt(len(accuracies))
-            #
-            # print_and_log(self.logfile, '{0:}: {1:3.1f}+/-{2:2.1f}'.format(item, accuracy, accuracy_confidence))
+            acc_after = torch.mean(torch.eq(target_labels, torch.argmax(torch.from_numpy(preds_adv).to(self.device), dim=-1)).float()).item()
+
+            logits = self.model(context_images, context_labels, target_images)
+            acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
+
+            diff = acc_before - acc_after
+            print(diff)
 
     def pgd_params(self, eps=0.3, eps_iter=0.01, ord=np.Inf, nb_iter=10, rand_init=True, clip_grad=True):
         return dict(
