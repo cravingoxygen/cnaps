@@ -161,9 +161,8 @@ class Learner:
                             default="basic", help="Normalization layer to use.")
         parser.add_argument("--training_iterations", "-i", type=int, default=110000,
                             help="Number of meta-training iterations.")
-        parser.add_argument("--attack_tasks", "-a", type=int, default=1,
+        parser.add_argument("--attack_tasks", "-a", type=int, default=10,
                             help="Number of tasks when performing attack.")
-
         parser.add_argument("--val_freq", type=int, default=10000, help="Number of iterations between validations.")
         parser.add_argument("--max_way_train", type=int, default=40,
                             help="Maximum way of meta-dataset meta-train task.")
@@ -317,7 +316,7 @@ class Learner:
                 context_images_attack_all = context_images.clone()
                 # Is require_grad true here, for context_images?
 
-                for c in range(0,1): #torch.unique(context_labels):
+                for c in torch.unique(context_labels):
                     # Adversarial input context image
                     class_index = self.model._extract_class_indices(context_labels, c)[0].item()
                     context_x = np.expand_dims(context_images_np[class_index], 0)
@@ -326,10 +325,6 @@ class Learner:
                     def model_wrapper(context_point_x):
                         # Insert context_point at correct spot
                         context_images_attack = torch.cat([context_images[0:class_index], context_point_x, context_images[class_index+1:]], dim=0)
-
-                        # Alternatively, we have to recreate context_images in each call to the wrapper function
-                        # context_images_attack = context_images.detach()
-                        # context_images_attack[class_index] = context_point_x
 
                         target_logits = self.model(context_images_attack, context_labels, target_images)
                         return target_logits[0]
@@ -343,9 +338,8 @@ class Learner:
                     preds_adv_op = tf_model.get_logits(adv_x_op)
 
                     feed_dict = {x: context_x}
-                    import pdb; pdb.set_trace()
                     adv_x, preds_adv = session.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
-                    import pdb; pdb.set_trace()
+
                     context_images_attack_all[class_index] = torch.from_numpy(adv_x)
 
                     save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
