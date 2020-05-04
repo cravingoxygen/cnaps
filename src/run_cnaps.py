@@ -313,7 +313,6 @@ class Learner:
 
                 task_dict = self.dataset.get_test_task(item, session)
                 context_images, target_images, context_labels, target_labels, context_images_np = self.prepare_task(task_dict, shuffle=False)
-                import pdb; pdb.set_trace()
                 # Detach shares storage with the original tensor, which isn't what we want.
                 context_images_attack_all = context_images.clone()
                 # Is require_grad true here, for context_images?
@@ -326,7 +325,7 @@ class Learner:
                     # Iput to the model wrapper is automatically converted to Torch tensor for us
                     def model_wrapper(context_point_x):
                         # Insert context_point at correct spot
-                        context_images_attack = torch.cat([context_images[0:class_index], context_point_x, context_images[class_index+1:-1]], dim=0)
+                        context_images_attack = torch.cat([context_images[0:class_index], context_point_x, context_images[class_index+1:]], dim=0)
 
                         # Alternatively, we have to recreate context_images in each call to the wrapper function
                         # context_images_attack = context_images.detach()
