@@ -161,6 +161,9 @@ class Learner:
                             default="basic", help="Normalization layer to use.")
         parser.add_argument("--training_iterations", "-i", type=int, default=110000,
                             help="Number of meta-training iterations.")
+        parser.add_argument("--attack_tasks", "-a", type=int, default=10,
+                            help="Number of tasks when performing attack.")
+
         parser.add_argument("--val_freq", type=int, default=10000, help="Number of iterations between validations.")
         parser.add_argument("--max_way_train", type=int, default=40,
                             help="Maximum way of meta-dataset meta-train task.")
@@ -305,38 +308,54 @@ class Learner:
         pgd_parameters = self.pgd_params()
 
         for item in self.test_set:
-            task_dict = self.dataset.get_test_task(item, session)
-            context_images, target_images, context_labels, target_labels, context_x = self.prepare_task(task_dict, shuffle=False)
 
-            #Adversarial input context image
-            context_x = np.expand_dims(context_x, 0)
+            for t in range(self.args.attack_tasks):
 
-            def model_wrapper(context_point_x):
-                full_context_set = torch.cat([context_point_x, context_images[1:]], dim=0)
-                target_logits = self.model(full_context_set, context_labels, target_images)
-                return target_logits[0]
+                task_dict = self.dataset.get_test_task(item, session)
+                context_images, target_images, context_labels, target_labels, context_x = self.prepare_task(task_dict, shuffle=False)
+                context_images_attack_all = context_images
 
-            tf_model_conv = convert_pytorch_model_to_tf(model_wrapper, out_dims=self.args.way)
-            tf_model = cleverhans.model.CallableModelWrapper(tf_model_conv, 'logits')
-            pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
-            x = tf.placeholder(tf.float32, shape=context_x.shape)
+                for c in torch.unique(context_labels):
+                    #Adversarial input context image
+                    class_index = self.model._extract_class_indices(context_labels, c)[0]
+                    context_x = np.expand_dims(context_images[class_index], 0)
+                    context_images_attack = context_images
+                    context_images_attack[class_index] = context_x
+                    context_images_attack_all[class_index] = context_x
 
-            adv_x_op = pgd.generate(x, **pgd_parameters)
-            preds_adv_op = tf_model.get_logits(adv_x_op)
+                    def model_wrapper(context_point_x):
+                        target_logits = self.model(context_images_attack, context_labels, target_images)
+                        return target_logits[0]
 
-            feed_dict = {x: context_x}
-            adv_x, preds_adv = session.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
+                    tf_model_conv = convert_pytorch_model_to_tf(model_wrapper, out_dims=self.args.way)
+                    tf_model = cleverhans.model.CallableModelWrapper(tf_model_conv, 'logits')
+                    pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
+                    x = tf.placeholder(tf.float32, shape=context_x.shape)
 
-            save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
-            save_image(context_x, os.path.join(self.checkpoint_dir, 'in.png'))
+                    adv_x_op = pgd.generate(x, **pgd_parameters)
+                    preds_adv_op = tf_model.get_logits(adv_x_op)
 
-            acc_after = torch.mean(torch.eq(target_labels, torch.argmax(torch.from_numpy(preds_adv).to(self.device), dim=-1)).float()).item()
+                    feed_dict = {x: context_x}
+                    adv_x, preds_adv = session.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
 
-            logits = self.model(context_images, context_labels, target_images)
-            acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
+                    save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
+                    save_image(context_x, os.path.join(self.checkpoint_dir, 'in.png'))
 
-            diff = acc_before - acc_after
-            print(diff)
+                    acc_after = torch.mean(torch.eq(target_labels, torch.argmax(torch.from_numpy(preds_adv).to(self.device), dim=-1)).float()).item()
+
+                    logits = self.model(context_images, context_labels, target_images)
+                    acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
+
+                    diff = acc_before - acc_after
+                    print_and_log(self.logfile, "Task = {}, Class = {} \t Diff = {}".format(t, c, diff))
+
+
+                print_and_log(self.logfile, "Accuracy before {}".format(acc_after))
+                logits = self.model(context_images_attack_all, context_labels, target_images)
+                acc_all_attack = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
+                print_and_log(self.logfile, "Accuracy after {}".format(acc_all_attack))
+
+
 
     def pgd_params(self, eps=0.3, eps_iter=0.01, ord=np.Inf, nb_iter=10, rand_init=True, clip_grad=True):
         return dict(
