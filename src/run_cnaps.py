@@ -312,18 +312,19 @@ class Learner:
             for t in range(self.args.attack_tasks):
 
                 task_dict = self.dataset.get_test_task(item, session)
-                context_images, target_images, context_labels, target_labels, context_x = self.prepare_task(task_dict, shuffle=False)
+                context_images, target_images, context_labels, target_labels, context_images_np = self.prepare_task(task_dict, shuffle=False)
                 context_images_attack_all = context_images
 
                 for c in torch.unique(context_labels):
                     #Adversarial input context image
                     class_index = self.model._extract_class_indices(context_labels, c)[0]
-                    context_x = np.expand_dims(context_images[class_index], 0)
-                    context_images_attack = context_images
-                    context_images_attack[class_index] = context_x
-                    context_images_attack_all[class_index] = context_x
+                    context_x = np.expand_dims(context_images_np[class_index], 0)
 
+                    context_images_attack = context_images
+
+                    #Iput to the model wrapper is automatically converted to Torch tensor for us
                     def model_wrapper(context_point_x):
+                        context_images_attack[class_index] = context_point_x
                         target_logits = self.model(context_images_attack, context_labels, target_images)
                         return target_logits[0]
 
@@ -337,6 +338,7 @@ class Learner:
 
                     feed_dict = {x: context_x}
                     adv_x, preds_adv = session.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
+                    context_images_attack_all[class_index] = torch.from_numpy(adv_x)
 
                     save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
                     save_image(context_x, os.path.join(self.checkpoint_dir, 'in.png'))
@@ -348,7 +350,6 @@ class Learner:
 
                     diff = acc_before - acc_after
                     print_and_log(self.logfile, "Task = {}, Class = {} \t Diff = {}".format(t, c, diff))
-
 
                 print_and_log(self.logfile, "Accuracy before {}".format(acc_after))
                 logits = self.model(context_images_attack_all, context_labels, target_images)
@@ -375,8 +376,6 @@ class Learner:
         target_images_np, target_labels_np = task_dict['target_images'], task_dict['target_labels']
 
         context_images_np = context_images_np.transpose([0, 3, 1, 2])
-        #TODO:
-        context_x = context_images_np[0]
 
         if shuffle:
             context_images_np, context_labels_np = self.shuffle(context_images_np, context_labels_np)
@@ -394,7 +393,7 @@ class Learner:
         context_labels = context_labels.to(self.device)
         target_labels = target_labels.type(torch.LongTensor).to(self.device)
 
-        return context_images, target_images, context_labels, target_labels, context_x
+        return context_images, target_images, context_labels, target_labels, context_images_np
 
     def shuffle(self, images, labels):
         """
