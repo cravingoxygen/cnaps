@@ -161,7 +161,7 @@ class Learner:
                             default="basic", help="Normalization layer to use.")
         parser.add_argument("--training_iterations", "-i", type=int, default=110000,
                             help="Number of meta-training iterations.")
-        parser.add_argument("--attack_tasks", "-a", type=int, default=10,
+        parser.add_argument("--attack_tasks", "-a", type=int, default=1,
                             help="Number of tasks when performing attack.")
 
         parser.add_argument("--val_freq", type=int, default=10000, help="Number of iterations between validations.")
@@ -313,15 +313,14 @@ class Learner:
 
                 task_dict = self.dataset.get_test_task(item, session)
                 context_images, target_images, context_labels, target_labels, context_images_np = self.prepare_task(task_dict, shuffle=False)
-                context_images_attack_all = context_images
+                context_images_attack_all = context_images.detach()
 
-                for c in torch.unique(context_labels):
-                    self.optimizer.zero_grad()
+                for c in range(0,1): #torch.unique(context_labels):
                     #Adversarial input context image
                     class_index = self.model._extract_class_indices(context_labels, c)[0]
                     context_x = np.expand_dims(context_images_np[class_index], 0)
 
-                    context_images_attack = context_images
+                    context_images_attack = context_images.detach()
 
                     #Iput to the model wrapper is automatically converted to Torch tensor for us
                     def model_wrapper(context_point_x):
@@ -329,6 +328,7 @@ class Learner:
                         target_logits = self.model(context_images_attack, context_labels, target_images)
                         return target_logits[0]
 
+                    import pdb; pdb.set_trace()
                     tf_model_conv = convert_pytorch_model_to_tf(model_wrapper, out_dims=self.args.way)
                     tf_model = cleverhans.model.CallableModelWrapper(tf_model_conv, 'logits')
                     pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
@@ -339,6 +339,7 @@ class Learner:
 
                     feed_dict = {x: context_x}
                     adv_x, preds_adv = session.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
+                    import pdb; pdb.set_trace()
                     context_images_attack_all[class_index] = torch.from_numpy(adv_x)
 
                     save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
@@ -349,6 +350,7 @@ class Learner:
                     with torch.no_grad():
                         logits = self.model(context_images, context_labels, target_images)
                         acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
+                        del logits
 
                     diff = acc_before - acc_after
                     print_and_log(self.logfile, "Task = {}, Class = {} \t Diff = {}".format(t, c, diff))
