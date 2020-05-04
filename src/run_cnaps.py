@@ -316,6 +316,7 @@ class Learner:
                 context_images_attack_all = context_images
 
                 for c in torch.unique(context_labels):
+                    self.optimizer.zero_grad()
                     #Adversarial input context image
                     class_index = self.model._extract_class_indices(context_labels, c)[0]
                     context_x = np.expand_dims(context_images_np[class_index], 0)
@@ -345,8 +346,9 @@ class Learner:
 
                     acc_after = torch.mean(torch.eq(target_labels, torch.argmax(torch.from_numpy(preds_adv).to(self.device), dim=-1)).float()).item()
 
-                    logits = self.model(context_images, context_labels, target_images)
-                    acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
+                    with torch.no_grad():
+                        logits = self.model(context_images, context_labels, target_images)
+                        acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
 
                     diff = acc_before - acc_after
                     print_and_log(self.logfile, "Task = {}, Class = {} \t Diff = {}".format(t, c, diff))
