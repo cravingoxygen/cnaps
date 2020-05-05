@@ -327,22 +327,27 @@ class Learner:
                 context_images_attack_all = context_images.clone()
                 # Is require_grad true here, for context_images?
 
+                class_index = 0
+
+                def model_wrapper(context_point_x):
+                    # Insert context_point at correct spot
+                    context_images_attack = torch.cat(
+                        [context_images[0:class_index], context_point_x, context_images[class_index + 1:]], dim=0)
+
+                    target_logits = self.model(context_images_attack, context_labels, target_images)
+                    return target_logits[0]
+
+                tf_model_conv = convert_pytorch_model_to_tf(model_wrapper, out_dims=self.args.way)
+                tf_model = cleverhans.model.CallableModelWrapper(tf_model_conv, 'logits')
+                pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
+
                 for c in torch.unique(context_labels):
                     # Adversarial input context image
                     class_index = extract_class_indices(context_labels, c)[0].item()
                     context_x = np.expand_dims(context_images_np[class_index], 0)
 
                     # Input to the model wrapper is automatically converted to Torch tensor for us
-                    def model_wrapper(context_point_x):
-                        # Insert context_point at correct spot
-                        context_images_attack = torch.cat([context_images[0:class_index], context_point_x, context_images[class_index+1:]], dim=0)
 
-                        target_logits = self.model(context_images_attack, context_labels, target_images)
-                        return target_logits[0]
-
-                    tf_model_conv = convert_pytorch_model_to_tf(model_wrapper, out_dims=self.args.way)
-                    tf_model = cleverhans.model.CallableModelWrapper(tf_model_conv, 'logits')
-                    pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
                     x = tf.placeholder(tf.float32, shape=context_x.shape)
 
                     adv_x_op = pgd.generate(x, **pgd_parameters)
