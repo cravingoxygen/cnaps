@@ -69,6 +69,17 @@ def save_image(image_array, save_path):
     im = Image.fromarray(np.clip((image_array + 1.0) * 127.5 + 0.5, 0, 255).astype(np.uint8), mode='RGB')
     im.save(save_path)
 
+def extract_class_indices(labels, which_class):
+    """
+    Helper method to extract the indices of elements which have the specified label.
+    :param labels: (torch.tensor) Labels of the context set.
+    :param which_class: Label for which indices are extracted.
+    :return: (torch.tensor) Indices in the form of a mask that indicate the locations of the specified label.
+    """
+    class_mask = torch.eq(labels, which_class)  # binary mask of labels equal to which_class
+    class_mask_indices = torch.nonzero(class_mask)  # indices of labels equal to which class
+    return torch.reshape(class_mask_indices, (-1,))  # reshape to be a 1D vector
+
 
 def main():
     learner = Learner()
@@ -318,10 +329,10 @@ class Learner:
 
                 for c in torch.unique(context_labels):
                     # Adversarial input context image
-                    class_index = self.model._extract_class_indices(context_labels, c)[0].item()
+                    class_index = extract_class_indices(context_labels, c)[0].item()
                     context_x = np.expand_dims(context_images_np[class_index], 0)
 
-                    # Iput to the model wrapper is automatically converted to Torch tensor for us
+                    # Input to the model wrapper is automatically converted to Torch tensor for us
                     def model_wrapper(context_point_x):
                         # Insert context_point at correct spot
                         context_images_attack = torch.cat([context_images[0:class_index], context_point_x, context_images[class_index+1:]], dim=0)
