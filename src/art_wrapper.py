@@ -20,7 +20,7 @@ class Art_Wrapper(nn.Module):
         self.cnaps_model = cnaps_model
 
     #Don't we also need the adv_context_image's label?
-    def init_data(self context_images, context_labels, target_images, adv_context_index):
+    def init_data(self, context_images, context_labels, target_images, adv_context_index):
         self.context_images = context_images
         self.context_labels = context_labels
         self.target_images = target_images

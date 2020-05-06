@@ -315,7 +315,6 @@ class Learner:
         print_and_log(self.logfile, 'Attacking model {0:}: '.format(path))
         self.model = self.init_model()
         self.model.load_state_dict(torch.load(path))
-        import pdb; pdb.set_trace()
         model_wrapper = Art_Wrapper(self.model)
 
         for item in self.test_set:
@@ -323,12 +322,12 @@ class Learner:
             for t in range(self.args.attack_tasks):
 
                 task_dict = self.dataset.get_test_task(item, session)
-                context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict, shuffle=False)
+                context_images, target_images, context_labels, target_labels, context_images_np = self.prepare_task(task_dict, shuffle=False)
                 context_images_attack_all = context_images.clone().detach()
 
                 for c in torch.unique(context_labels):
                     class_index = extract_class_indices(context_labels, c)[0].item()
-                    context_x = np.expand_dims(context_images[class_index], 0)
+                    context_x = np.expand_dims(context_images_np[class_index], 0)
 
                     model_wrapper.init_data(context_images, context_labels, target_images, class_index)
 
@@ -340,9 +339,10 @@ class Learner:
                         input_shape=context_x.shape,
                         nb_classes=self.args.way,
                     )
+                    import pdb; pdb.set_trace()
 
                     attack = FastGradientMethod(classifier, eps=0.3)
-                    adv_x = attack.generate(x=context_x)
+                    adv_x = attack.generate(x=context_x) #Not sure what type the result will be, torch tensor or numpy
                     preds_adv = model_wrapper(adv_x)
                     context_images_attack_all[class_index] = adv_x
 
@@ -364,19 +364,6 @@ class Learner:
                 acc_all_attack = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
                 print_and_log(self.logfile, "Accuracy after {}".format(acc_all_attack))
 
-
-
-    def pgd_params(self, eps=0.3, eps_iter=0.01, ord=np.Inf, nb_iter=10, rand_init=True, clip_grad=True):
-        return dict(
-            eps=eps,
-            eps_iter=eps_iter,
-            ord=ord,
-            nb_iter=nb_iter,
-            rand_init=rand_init,
-            clip_grad=clip_grad,
-            clip_min=-1.0,
-            clip_max=1.0,
-        )
 
 
     def prepare_task(self, task_dict, shuffle=True):
@@ -401,7 +388,7 @@ class Learner:
         context_labels = context_labels.to(self.device)
         target_labels = target_labels.type(torch.LongTensor).to(self.device)
 
-        return context_images, target_images, context_labels, target_labels
+        return context_images, target_images, context_labels, target_labels, context_images_np
 
     def shuffle(self, images, labels):
         """
