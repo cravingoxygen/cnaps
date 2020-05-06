@@ -49,13 +49,13 @@ import pickle
 from normalization_layers import TaskNormI
 from utils import print_and_log, get_log_files, ValidationAccuracies, loss, aggregate_accuracy, verify_checkpoint_dir
 from model import Cnaps
+from art_wrapper import Art_Wrapper
 from meta_dataset_reader import MetaDatasetReader, SingleDatasetReader
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Quiet TensorFlow warnings
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # Quiet TensorFlow warnings
-import cleverhans
-from cleverhans.utils_pytorch import convert_pytorch_model_to_tf
-from cleverhans.attacks import ProjectedGradientDescent
+from art.attacks import FastGradientMethod
+from art.classifiers import PyTorchClassifier
 from PIL import Image
 
 NUM_VALIDATION_TASKS = 200
@@ -315,57 +315,44 @@ class Learner:
         print_and_log(self.logfile, 'Attacking model {0:}: '.format(path))
         self.model = self.init_model()
         self.model.load_state_dict(torch.load(path))
-        pgd_parameters = self.pgd_params()
-
-        class_index = 0
-        context_images, target_images, context_labels, target_labels, context_images_np = None, None, None, None, None
-
-        def model_wrapper(context_point_x):
-            # Insert context_point at correct spot
-            context_images_attack = torch.cat(
-                [context_images[0:class_index], context_point_x, context_images[class_index + 1:]], dim=0)
-
-            target_logits = self.model(context_images_attack, context_labels, target_images)
-            return target_logits[0]
-
-        tf_model_conv = convert_pytorch_model_to_tf(model_wrapper, out_dims=self.args.way)
-        tf_model = cleverhans.model.CallableModelWrapper(tf_model_conv, 'logits')
-        pgd = ProjectedGradientDescent(tf_model, sess=session, dtypestr='float32')
+        import pdb; pdb.set_trace()
+        model_wrapper = Art_Wrapper(self.model)
 
         for item in self.test_set:
 
             for t in range(self.args.attack_tasks):
 
                 task_dict = self.dataset.get_test_task(item, session)
-                context_images, target_images, context_labels, target_labels, context_images_np = self.prepare_task(task_dict, shuffle=False)
-                # Detach shares storage with the original tensor, which isn't what we want.
-                context_images_attack_all = context_images.clone()
-                # Is require_grad true here, for context_images?
+                context_images, target_images, context_labels, target_labels = self.prepare_task(task_dict, shuffle=False)
+                context_images_attack_all = context_images.clone().detach()
 
                 for c in torch.unique(context_labels):
-                    # Adversarial input context image
                     class_index = extract_class_indices(context_labels, c)[0].item()
-                    context_x = np.expand_dims(context_images_np[class_index], 0)
+                    context_x = np.expand_dims(context_images[class_index], 0)
 
-                    # Input to the model wrapper is automatically converted to Torch tensor for us
+                    model_wrapper.init_data(context_images, context_labels, target_images, class_index)
 
-                    x = tf.placeholder(tf.float32, shape=context_x.shape)
+                    classifier = PyTorchClassifier(
+                        model=model_wrapper,
+                        clip_values=(-1.0, 1.0),  # Could also get this from context_images
+                        loss=self.loss,
+                        optimizer=self.optimizer,
+                        input_shape=context_x.shape,
+                        nb_classes=self.args.way,
+                    )
 
-                    adv_x_op = pgd.generate(x, **pgd_parameters)
-                    preds_adv_op = tf_model.get_logits(adv_x_op)
+                    attack = FastGradientMethod(classifier, eps=0.3)
+                    adv_x = attack.generate(x=context_x)
+                    preds_adv = model_wrapper(adv_x)
+                    context_images_attack_all[class_index] = adv_x
 
-                    feed_dict = {x: context_x}
-                    adv_x, preds_adv = session.run((adv_x_op, preds_adv_op), feed_dict=feed_dict)
+                    save_image(adv_x.numpy(), os.path.join(self.checkpoint_dir, 'adv.png'))
+                    save_image(context_x.numpy(), os.path.join(self.checkpoint_dir, 'in.png'))
 
-                    context_images_attack_all[class_index] = torch.from_numpy(adv_x)
-
-                    save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
-                    save_image(context_x, os.path.join(self.checkpoint_dir, 'in.png'))
-
-                    acc_after = torch.mean(torch.eq(target_labels, torch.argmax(torch.from_numpy(preds_adv).to(self.device), dim=-1)).float()).item()
+                    acc_after = torch.mean(torch.eq(target_labels, torch.argmax(preds_adv, dim=-1)).float()).item()
 
                     with torch.no_grad():
-                        logits = self.model(context_images, context_labels, target_images)
+                        logits = model_wrapper(context_images, context_labels, target_images)
                         acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
                         del logits
 
@@ -373,7 +360,7 @@ class Learner:
                     print_and_log(self.logfile, "Task = {}, Class = {} \t Diff = {}".format(t, c, diff))
 
                 print_and_log(self.logfile, "Accuracy before {}".format(acc_after))
-                logits = self.model(context_images_attack_all, context_labels, target_images)
+                logits = model_wrapper(context_images_attack_all, context_labels, target_images)
                 acc_all_attack = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
                 print_and_log(self.logfile, "Accuracy after {}".format(acc_all_attack))
 
@@ -414,7 +401,7 @@ class Learner:
         context_labels = context_labels.to(self.device)
         target_labels = target_labels.type(torch.LongTensor).to(self.device)
 
-        return context_images, target_images, context_labels, target_labels, context_images_np
+        return context_images, target_images, context_labels, target_labels
 
     def shuffle(self, images, labels):
         """
