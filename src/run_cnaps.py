@@ -42,6 +42,7 @@ os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"]="1"  # specify which GPU(s) to be used
 
 import torch
+import torch.nn as nn
 import numpy as np
 import argparse
 import os
@@ -334,7 +335,7 @@ class Learner:
                     classifier = PyTorchClassifier(
                         model=model_wrapper,
                         clip_values=(-1.0, 1.0),  # Could also get this from context_images
-                        loss=self.loss_fn,
+                        loss=nn.CrossEntropyLoss(),
                         optimizer=self.optimizer,
                         input_shape=context_x.shape,
                         nb_classes=self.args.way,
