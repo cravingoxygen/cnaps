@@ -55,7 +55,7 @@ from meta_dataset_reader import MetaDatasetReader, SingleDatasetReader
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Quiet TensorFlow warnings
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # Quiet TensorFlow warnings
-from art.attacks import FastGradientMethod
+from art.attacks import ProjectedGradientDescent
 from art.classifiers import PyTorchClassifier
 from PIL import Image
 
@@ -340,14 +340,13 @@ class Learner:
                         input_shape=context_x.shape,
                         nb_classes=self.args.way,
                     )
-                    import pdb; pdb.set_trace()
 
-                    attack = FastGradientMethod(classifier, eps=0.3)
+                    attack = ProjectedGradientDescent(classifier, eps=0.3, eps_step=0.1, max_iter=20)
                     adv_x = attack.generate(x=context_x) #Not sure what type the result will be, torch tensor or numpy
 
-                    save_image(adv_x.numpy(), os.path.join(self.checkpoint_dir, 'adv.png'))
-                    save_image(context_x.numpy(), os.path.join(self.checkpoint_dir, 'in.png'))
-                    adv_x_torch = adv_x.fromnumpy().to(self.device)
+                    save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
+                    save_image(context_x, os.path.join(self.checkpoint_dir, 'in.png'))
+                    adv_x_torch = torch.from_numpy(adv_x).to(self.device)
                     context_images_attack_all[class_index] = adv_x_torch
 
                     with torch.no_grad():
@@ -363,7 +362,7 @@ class Learner:
                     print_and_log(self.logfile, "Task = {}, Class = {} \t Diff = {}".format(t, c, diff))
 
                 print_and_log(self.logfile, "Accuracy before {}".format(acc_after))
-                logits = model_wrapper(context_images_attack_all, context_labels, target_images)
+                logits = self.model(context_images_attack_all, context_labels, target_images)
                 acc_all_attack = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
                 print_and_log(self.logfile, "Accuracy after {}".format(acc_all_attack))
 
