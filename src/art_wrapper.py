@@ -38,7 +38,7 @@ class Art_Wrapper(nn.Module):
         context_images_attack = torch.cat([self.context_images[0:self.adv_context_index], context_image_adv,
             self.context_images[self.adv_context_index + 1:]], dim=0)
         logits = self.cnaps_model(context_images_attack, self.context_labels, self.target_images)
-        return logits[0]
+        return logits[0][0]
 
 
 

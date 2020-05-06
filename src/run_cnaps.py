@@ -343,16 +343,18 @@ class Learner:
 
                     attack = FastGradientMethod(classifier, eps=0.3)
                     adv_x = attack.generate(x=context_x) #Not sure what type the result will be, torch tensor or numpy
-                    preds_adv = model_wrapper(adv_x)
-                    context_images_attack_all[class_index] = adv_x
 
                     save_image(adv_x.numpy(), os.path.join(self.checkpoint_dir, 'adv.png'))
                     save_image(context_x.numpy(), os.path.join(self.checkpoint_dir, 'in.png'))
-
-                    acc_after = torch.mean(torch.eq(target_labels, torch.argmax(preds_adv, dim=-1)).float()).item()
+                    adv_x_torch = adv_x.fromnumpy().to(self.device)
+                    context_images_attack_all[class_index] = adv_x_torch
 
                     with torch.no_grad():
-                        logits = model_wrapper(context_images, context_labels, target_images)
+                        logits_adv = self.model(torch.cat([context_images[0:class_index], adv_x_torch,
+                            context_images[class_index + 1:]], dim=0), context_labels, target_images)
+                        acc_after = torch.mean(torch.eq(target_labels, torch.argmax(logits_adv, dim=-1)).float()).item()
+
+                        logits = self.model(context_images, context_labels, target_images)
                         acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
                         del logits
 
