@@ -318,6 +318,17 @@ class Learner:
         self.model.load_state_dict(torch.load(path))
         model_wrapper = Art_Wrapper(self.model)
 
+        classifier = PyTorchClassifier(
+            model=model_wrapper,
+            clip_values=(-1.0, 1.0),  # Could also get this from context_images
+            loss=nn.CrossEntropyLoss(),
+            optimizer=self.optimizer,
+            input_shape=(1, 3, 84, 84),
+            nb_classes=self.args.way,
+        )
+
+        attack = ProjectedGradientDescent(classifier, eps=0.3, eps_step=0.01, max_iter=10)
+
         for item in self.test_set:
 
             for t in range(self.args.attack_tasks):
@@ -332,17 +343,7 @@ class Learner:
 
                     model_wrapper.init_data(context_images, context_labels, target_images, class_index)
 
-                    classifier = PyTorchClassifier(
-                        model=model_wrapper,
-                        clip_values=(-1.0, 1.0),  # Could also get this from context_images
-                        loss=nn.CrossEntropyLoss(),
-                        optimizer=self.optimizer,
-                        input_shape=context_x.shape,
-                        nb_classes=self.args.way,
-                    )
-
-                    attack = ProjectedGradientDescent(classifier, eps=0.3, eps_step=0.01, max_iter=10)
-                    adv_x = attack.generate(x=context_x) #Not sure what type the result will be, torch tensor or numpy
+                    adv_x = attack.generate(x=context_x)
 
                     save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
                     save_image(context_x, os.path.join(self.checkpoint_dir, 'in.png'))
