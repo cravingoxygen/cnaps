@@ -8,16 +8,17 @@ class FastGradientMethod():
         self.attack_mode = attack_mode
         self.clip_max = clip_max
         self.clip_min = clip_min
+        self.loss = nn.CrossEntropyLoss()
 
 
     def generate(self, context_images, context_labels, target_images, model):
         adv_context_mask = self._generate_context_mask_(context_images, context_labels)
 
         logits = model(context_images, context_labels, target_images)
-        labels = self._convert_labels_(logits)
+        labels = self._convert_labels_(logits[0])
 
         # Compute loss
-        loss = nn.CrossEntropyLoss(logits, labels)
+        loss = self.loss(logits[0], labels)
         model.zero_grad()
 
         loss.backward()
@@ -38,4 +39,4 @@ class FastGradientMethod():
         return [(0,0)]
 
     def _convert_labels_(self, preds):
-        return torch.argmax(preds, dim=1, keepdim=True)
+        return torch.argmax(preds, dim=1, keepdim=False)

@@ -248,7 +248,7 @@ class Learner:
                 self.test(self.args.test_model_path, session)
 
             if self.args.mode == 'attack':
-                self.attack(self.args.test_model_path, session)
+                self.attack_homebrew(self.args.test_model_path, session)
 
             self.logfile.close()
 
