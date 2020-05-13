@@ -58,6 +58,7 @@ tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # Quiet TensorFl
 from art.attacks import ProjectedGradientDescent
 from art.classifiers import PyTorchClassifier
 from PIL import Image
+from attacks import FastGradientMethod
 
 NUM_VALIDATION_TASKS = 200
 NUM_TEST_TASKS = 600
@@ -310,6 +311,43 @@ class Learner:
                 accuracy_confidence = (196.0 * np.array(accuracies).std()) / np.sqrt(len(accuracies))
 
                 print_and_log(self.logfile, '{0:}: {1:3.1f}+/-{2:2.1f}'.format(item, accuracy, accuracy_confidence))
+
+    def attack_homebrew(self, path, session):
+        print_and_log(self.logfile, "")  # add a blank line
+        print_and_log(self.logfile, 'Attacking model {0:}: '.format(path))
+        self.model = self.init_model()
+        self.model.load_state_dict(torch.load(path))
+
+        fgm_attack = FastGradientMethod()
+
+        for item in self.test_set:
+
+            for t in range(self.args.attack_tasks):
+
+                task_dict = self.dataset.get_test_task(item, session)
+                context_images, target_images, context_labels, target_labels, context_images_np = self.prepare_task(
+                    task_dict, shuffle=False)
+                #context_images_attack_all = context_images.clone().detach()
+
+                adv_x = fgm_attack.generate(context_images, context_labels, target_images, self.model)
+
+                save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
+                save_image(context_images[0], os.path.join(self.checkpoint_dir, 'in.png'))
+                adv_x_torch = torch.from_numpy(adv_x).to(self.device)
+                #context_images_attack_all[class_index] = adv_x_torch
+
+                with torch.no_grad():
+                    logits_adv = self.model(torch.cat([adv_x_torch,
+                                                       context_images[1:]], dim=0), context_labels,
+                                            target_images)
+                    acc_after = torch.mean(torch.eq(target_labels, torch.argmax(logits_adv, dim=-1)).float()).item()
+
+                    logits = self.model(context_images, context_labels, target_images)
+                    acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
+                    del logits
+
+                diff = acc_before - acc_after
+                print_and_log(self.logfile, "Task = {}, Class = {} \t Diff = {}".format(t, c, diff))
 
     def attack(self, path, session):
         print_and_log(self.logfile, "")  # add a blank line
