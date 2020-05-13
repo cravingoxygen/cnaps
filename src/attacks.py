@@ -13,7 +13,7 @@ class FastGradientMethod():
 
     def generate(self, context_images, context_labels, target_images, model):
         adv_context_mask = self._generate_context_mask_(context_images, context_labels)
-
+        context_images.requires_grad = True
         logits = model(context_images, context_labels, target_images)
         labels = self._convert_labels_(logits[0])
 

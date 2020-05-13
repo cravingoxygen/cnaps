@@ -330,14 +330,14 @@ class Learner:
                 #context_images_attack_all = context_images.clone().detach()
 
                 adv_x = fgm_attack.generate(context_images, context_labels, target_images, self.model)
-
-                save_image(adv_x, os.path.join(self.checkpoint_dir, 'adv.png'))
-                save_image(context_images[0], os.path.join(self.checkpoint_dir, 'in.png'))
-                adv_x_torch = torch.from_numpy(adv_x).to(self.device)
+                import pdb; pdb.set_trace()
+                save_image(adv_x.cpu().detach().numpy(), os.path.join(self.checkpoint_dir, 'adv.png'))
+                save_image(context_images_np[0], os.path.join(self.checkpoint_dir, 'in.png'))
+                #adv_x_torch = torch.from_numpy(adv_x).to(self.device)
                 #context_images_attack_all[class_index] = adv_x_torch
 
                 with torch.no_grad():
-                    logits_adv = self.model(torch.cat([adv_x_torch,
+                    logits_adv = self.model(torch.cat([adv_x.unsqueeze(0),
                                                        context_images[1:]], dim=0), context_labels,
                                             target_images)
                     acc_after = torch.mean(torch.eq(target_labels, torch.argmax(logits_adv, dim=-1)).float()).item()
@@ -347,7 +347,7 @@ class Learner:
                     del logits
 
                 diff = acc_before - acc_after
-                print_and_log(self.logfile, "Task = {}, Class = {} \t Diff = {}".format(t, c, diff))
+                print_and_log(self.logfile, "Task = {}, Class = 0 \t Diff = {}".format(t, 0, diff))
 
     def attack(self, path, session):
         print_and_log(self.logfile, "")  # add a blank line
