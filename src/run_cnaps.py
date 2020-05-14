@@ -55,8 +55,8 @@ from meta_dataset_reader import MetaDatasetReader, SingleDatasetReader
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Quiet TensorFlow warnings
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # Quiet TensorFlow warnings
-from art.attacks import ProjectedGradientDescent
-from art.classifiers import PyTorchClassifier
+# from art.attacks import ProjectedGradientDescent, FastGradientMethod
+# from art.classifiers import PyTorchClassifier
 from PIL import Image
 from attacks import FastGradientMethod
 
@@ -249,6 +249,7 @@ class Learner:
 
             if self.args.mode == 'attack':
                 self.attack_homebrew(self.args.test_model_path, session)
+                # self.attack(self.args.test_model_path, session)
 
             self.logfile.close()
 
@@ -327,27 +328,30 @@ class Learner:
                 task_dict = self.dataset.get_test_task(item, session)
                 context_images, target_images, context_labels, target_labels, context_images_np = self.prepare_task(
                     task_dict, shuffle=False)
-                #context_images_attack_all = context_images.clone().detach()
 
-                adv_x = fgm_attack.generate(context_images, context_labels, target_images, self.model)
-                import pdb; pdb.set_trace()
-                save_image(adv_x.cpu().detach().numpy(), os.path.join(self.checkpoint_dir, 'adv.png'))
-                save_image(context_images_np[0], os.path.join(self.checkpoint_dir, 'in.png'))
-                #adv_x_torch = torch.from_numpy(adv_x).to(self.device)
-                #context_images_attack_all[class_index] = adv_x_torch
+                adv_context_images, adv_context_indices = fgm_attack.generate(
+                    context_images,
+                    context_labels,
+                    target_images,
+                    self.model)
+
+                for index in adv_context_indices:
+                    save_image(adv_context_images[index].cpu().detach().numpy(),
+                               os.path.join(self.checkpoint_dir, 'adv_task_{}_index_{}.png'.format(t, index)))
+                    save_image(context_images_np[index],
+                               os.path.join(self.checkpoint_dir,'in_task_{}_index_{}.png'.format(t, index)))
 
                 with torch.no_grad():
-                    logits_adv = self.model(torch.cat([adv_x.unsqueeze(0),
-                                                       context_images[1:]], dim=0), context_labels,
-                                            target_images)
+                    logits_adv = self.model(adv_context_images, context_labels, target_images)
                     acc_after = torch.mean(torch.eq(target_labels, torch.argmax(logits_adv, dim=-1)).float()).item()
+                    del logits_adv
 
                     logits = self.model(context_images, context_labels, target_images)
                     acc_before = torch.mean(torch.eq(target_labels, torch.argmax(logits, dim=-1)).float()).item()
                     del logits
 
                 diff = acc_before - acc_after
-                print_and_log(self.logfile, "Task = {}, Class = 0 \t Diff = {}".format(t, 0, diff))
+                print_and_log(self.logfile, "Task = {}, Diff = {}".format(t, diff))
 
     def attack(self, path, session):
         print_and_log(self.logfile, "")  # add a blank line
@@ -365,7 +369,8 @@ class Learner:
             nb_classes=self.args.way,
         )
 
-        attack = ProjectedGradientDescent(classifier, eps=0.3, eps_step=0.01, max_iter=10)
+        # attack = ProjectedGradientDescent(classifier, eps=0.3, eps_step=0.01, max_iter=10)
+        attack = FastGradientMethod(classifier)
 
         for item in self.test_set:
 
