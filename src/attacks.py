@@ -13,8 +13,8 @@ class ProjectedGradientDescent():
                  epsilon_step=0.01,
                  project_step=True,
                  attack_mode='context',
-                 class_fraction=0.2,
-                 shot_fraction=0.2,
+                 class_fraction=1.0,
+                 shot_fraction=1.0,
                  clip_max=1.0,
                  clip_min=-1.0):
         self.norm = norm
@@ -32,17 +32,18 @@ class ProjectedGradientDescent():
     def generate(self, context_images, context_labels, target_images, model):
         adv_context_indices = self._generate_context_attack_indices(context_labels)
         adv_context_images = context_images.clone()
-        adv_context_images.requires_grad = True
 
         #Initial projection step
-        m = np.prod(adv_context_images[0].shape)
-        initial_perturb = self.random_sphere(len(adv_context_indices), m, self.epsilon, self.norm).reshape([len(adv_context_indices), adv_context_images[1:] ])
+        size = adv_context_images.size()
+        m = size[1] * size[2] * size[3]
+        initial_perturb = self.random_sphere(len(adv_context_indices), m, self.epsilon, self.norm).reshape((len(adv_context_indices), size[1], size[2], size[3])).to(model.device)
 
         for i, index in enumerate(adv_context_indices):
             adv_context_images[index] = torch.clamp(adv_context_images[index] +
                                                      initial_perturb[i], self.clip_min,
                                                     self.clip_max)
 
+        adv_context_images.requires_grad = True
         for i in range(0, self.num_iterations):
             logits = model(adv_context_images, context_labels, target_images)
             labels = self._convert_labels_(logits[0])
@@ -63,8 +64,12 @@ class ProjectedGradientDescent():
                                                         self.epsilon_step * perturbation[index], self.clip_min, self.clip_max)
 
                 diff = adv_context_images[index] - context_images[index]
-                new_perturbation = self.projection(diff, self.epsilon, self.norm)
+                new_perturbation = self.projection(diff, self.epsilon, self.norm, model.device)
                 adv_context_images[index] = context_images[index] + new_perturbation
+
+            adv_context_images = adv_context_images.detach()
+            adv_context_images.requires_grad = True
+            del logits
 
 
         return adv_context_images, adv_context_indices
@@ -85,7 +90,7 @@ class ProjectedGradientDescent():
         return indices
 
     @staticmethod
-    def projection(values, eps, norm_p):
+    def projection(values, eps, norm_p, device):
         """
         Project `values` on the L_p norm ball of size `eps`.
         :param values: Array of perturbations to clip.
@@ -102,15 +107,17 @@ class ProjectedGradientDescent():
         values_tmp = values.reshape((values.shape[0], -1))
 
         if norm_p == 2:
+            pass
             #values_tmp = values_tmp * torch.unsqueeze(
             #    np.minimum(1.0, eps / (np.linalg.norm(values_tmp, axis=1) + tol)), dim=1
             #)
         elif norm_p == 1:
+            pass
             #values_tmp = values_tmp * np.expand_dims(
             #    np.minimum(1.0, eps / (np.linalg.norm(values_tmp, axis=1, ord=1) + tol)), axis=1
             #)
         elif norm_p == 'inf':
-            values_tmp = torch.sign(values_tmp) * torch.min(torch.abs(values_tmp), torch.Tensor([eps]))
+            values_tmp = torch.sign(values_tmp) * torch.min(torch.abs(values_tmp), torch.Tensor([eps]).to(device))
         else:
             raise NotImplementedError(
                 "Values of `norm_p` different from 1, 2 and `np.inf` are currently not supported.")

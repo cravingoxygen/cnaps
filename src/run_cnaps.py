@@ -37,9 +37,9 @@ python run_cnaps.py --feature_adaptation film -i 20000 -lr 0.001 --batch_normali
                     -- dataset omniglot --way 5 --shot 5 --data_path <path to directory containing Meta-Dataset records>
 
 """
-import os
-os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"]="1"  # specify which GPU(s) to be used
+# import os
+# os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"]="1"  # specify which GPU(s) to be used
 
 import torch
 import torch.nn as nn
@@ -58,7 +58,7 @@ tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)  # Quiet TensorFl
 # from art.attacks import ProjectedGradientDescent, FastGradientMethod
 # from art.classifiers import PyTorchClassifier
 from PIL import Image
-from attacks import FastGradientMethod
+from attacks import ProjectedGradientDescent
 
 NUM_VALIDATION_TASKS = 200
 NUM_TEST_TASKS = 600
@@ -319,7 +319,7 @@ class Learner:
         self.model = self.init_model()
         self.model.load_state_dict(torch.load(path))
 
-        fgm_attack = FastGradientMethod()
+        fgm_attack = ProjectedGradientDescent()
 
         for item in self.test_set:
 
